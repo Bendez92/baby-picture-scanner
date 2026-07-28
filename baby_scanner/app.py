@@ -9,7 +9,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -36,7 +35,6 @@ class BabyPictureScanner(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<Return>", lambda _event: self._start_scan())
         self._closing = False
-        self._force_exit_on_close = False
         self._ui_queue: queue.Queue[tuple[object, tuple]] = queue.Queue()
         self._scan_active = False
         self._config_path = Path.home() / ".baby_picture_scanner.json"
@@ -114,31 +112,24 @@ class BabyPictureScanner(tk.Tk):
         if self._closing:
             return
         self._closing = True
-        self._cancel_event.set()
-        self._save_config()
-        for after_id in (getattr(self, "_queue_after_id", None), getattr(self, "_prepare_after_id", None)):
-            if after_id:
-                try:
-                    self.after_cancel(after_id)
-                except tk.TclError:
-                    pass
-        self.destroy()
-        if self._force_exit_on_close:
-            threading.Thread(target=self._finish_process_shutdown, daemon=True).start()
-
-    def _finish_process_shutdown(self) -> None:
-        """Allow active work a moment to stop, then prevent a zombie process."""
-        current = threading.current_thread()
-        deadline = time.monotonic() + 2.0
-        workers = (self._scan_thread, self._download_thread)
-        for worker in workers:
-            if worker is None or worker is current:
-                continue
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            worker.join(remaining)
-        if any(worker is not None and worker.is_alive() for worker in workers):
+        try:
+            self._cancel_event.set()
+            self._save_config()
+            for after_id in (
+                getattr(self, "_queue_after_id", None),
+                getattr(self, "_prepare_after_id", None),
+            ):
+                if after_id:
+                    try:
+                        self.after_cancel(after_id)
+                    except Exception:
+                        pass
+            self.destroy()
+            current = threading.current_thread()
+            for worker in (self._scan_thread, self._download_thread):
+                if worker is not None and worker is not current and worker.is_alive():
+                    worker.join(0.25)
+        finally:
             os._exit(0)
 
     def _configure_dark_theme(self) -> None:
@@ -654,8 +645,10 @@ class BabyPictureScanner(tk.Tk):
 
 def main() -> None:
     app = BabyPictureScanner()
-    app._force_exit_on_close = True
-    app.mainloop()
+    try:
+        app.mainloop()
+    finally:
+        os._exit(0)
 
 
 if __name__ == "__main__":
