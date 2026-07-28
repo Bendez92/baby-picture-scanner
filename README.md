@@ -15,9 +15,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The first scan downloads the model from HuggingFace; later scans use the local
-cache and do not need network access. Choose a folder, set the confidence
-threshold, optionally include subfolders, and click **Scan**. Results can be
+On startup the app checks the local HuggingFace cache. If the model is missing,
+it downloads it in the background with a byte-level progress indicator; Scan
+stays disabled until this finishes. Internet access is required only for this
+first download, and a retry button is shown if it fails. Choose a folder, set
+the confidence threshold, optionally include subfolders, and click **Scan**.
+Results can be
 reviewed with thumbnails, marked/unmarked, revealed in the file manager, or
 moved to the desktop trash.
 

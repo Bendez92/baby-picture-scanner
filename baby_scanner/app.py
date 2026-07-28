@@ -27,7 +27,10 @@ class BabyPictureScanner(tk.Tk):
         self._detections: list[Detection] = []
         self._selected: set[int] = set()
         self._thumb: ImageTk.PhotoImage | None = None
+        self._model_ready = False
+        self._download_thread: threading.Thread | None = None
         self._build_start()
+        self.after(50, self._prepare_model)
 
     def _build_start(self) -> None:
         self._clear()
@@ -52,10 +55,13 @@ class BabyPictureScanner(tk.Tk):
         self.start_status.pack(pady=14)
         self.start_progress = ttk.Progressbar(outer, mode="determinate", length=420)
         self.start_progress.pack(pady=6)
+        self.retry_button = ttk.Button(outer, text="Retry model download", command=self._prepare_model)
         buttons = ttk.Frame(outer)
         buttons.pack(pady=10)
         self.scan_button = ttk.Button(buttons, text="Scan", command=self._start_scan)
         self.scan_button.pack(side="left", padx=5)
+        if not self._model_ready:
+            self.scan_button.configure(state="disabled")
         self.cancel_button = ttk.Button(buttons, text="Cancel", command=self._cancel_scan, state="disabled")
         self.cancel_button.pack(side="left", padx=5)
 
@@ -67,6 +73,48 @@ class BabyPictureScanner(tk.Tk):
         selected = filedialog.askdirectory(title="Choose a folder to scan")
         if selected:
             self.folder_var.set(selected)
+
+    def _prepare_model(self) -> None:
+        if self._download_thread and self._download_thread.is_alive():
+            return
+        self.retry_button.pack_forget()
+        self.scan_button.configure(state="disabled")
+        self.start_progress.configure(mode="determinate", maximum=1, value=0)
+        self.start_status.configure(text="Checking local model cache…")
+        self._download_thread = threading.Thread(target=self._model_worker, daemon=True)
+        self._download_thread.start()
+
+    def _model_worker(self) -> None:
+        def progress(downloaded: int, total: int) -> None:
+            self.after(0, lambda: self._download_progress(downloaded, total))
+
+        try:
+            self._detector.prepare_model(progress)
+        except Exception as error:
+            self.after(0, lambda error=error: self._model_failed(error))
+        else:
+            self.after(0, self._model_ready_ui)
+
+    def _download_progress(self, downloaded: int, total: int) -> None:
+        total = max(total, 1)
+        self.start_progress.configure(maximum=total, value=min(downloaded, total))
+        self.start_status.configure(
+            text=f"Downloading age model… {downloaded / 1024**2:.1f} / {total / 1024**2:.1f} MB"
+        )
+
+    def _model_ready_ui(self) -> None:
+        self._model_ready = True
+        self.start_progress.configure(maximum=1, value=1)
+        self.start_status.configure(text="Model ready. Choose a folder to begin.")
+        self.scan_button.configure(state="normal")
+
+    def _model_failed(self, error: Exception) -> None:
+        self._model_ready = False
+        self.start_progress.configure(maximum=1, value=0)
+        self.start_status.configure(
+            text=f"Model download failed. Internet access is required on first run: {error}"
+        )
+        self.retry_button.pack(pady=(8, 0))
 
     def _start_scan(self) -> None:
         folder = Path(self.folder_var.get()).expanduser()

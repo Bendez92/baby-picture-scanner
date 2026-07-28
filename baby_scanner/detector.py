@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Callable, Iterable
 
 from PIL import Image
@@ -37,6 +38,40 @@ class BabyDetector:
 
             self._pipeline = pipeline("image-classification", model=self.model_name)
         return self._pipeline
+
+    def prepare_model(self, on_progress: Callable[[int, int], None] | None = None) -> None:
+        """Ensure model files are cached before the UI allows scanning."""
+        from huggingface_hub import snapshot_download
+        from tqdm.auto import tqdm
+
+        try:
+            snapshot_download(self.model_name, local_files_only=True)
+            if on_progress:
+                on_progress(1, 1)
+            return
+        except Exception:
+            pass
+
+        dry_run = snapshot_download(self.model_name, dry_run=True)
+        total = sum(info.file_size or 0 for info in dry_run)
+        state = {"downloaded": sum(info.file_size or 0 for info in dry_run if info.is_cached)}
+        lock = Lock()
+        callback = on_progress or (lambda _downloaded, _total: None)
+
+        class ProgressTqdm(tqdm):
+            def update(self, n=1):
+                previous = self.n
+                result = super().update(n)
+                delta = self.n - previous
+                if delta:
+                    with lock:
+                        state["downloaded"] += delta
+                        callback(state["downloaded"], total)
+                return result
+
+        snapshot_download(self.model_name, tqdm_class=ProgressTqdm)
+        if on_progress:
+            on_progress(total, total)
 
     @staticmethod
     def _is_baby_label(label: str) -> bool:
