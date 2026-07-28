@@ -50,9 +50,10 @@ and `3-9` probabilities. The `3-9` model class extends beyond age 8, so this
 is an approximate range. **Babies (0-2)** mode uses only the `0-2` class.
 
 Scanning prepares image decoding and face detection concurrently, downsizes
-large images before detection, and batches face crops through the classifier
-to reduce per-image overhead. PyTorch CPU threads are capped to a small
-parallel count to avoid oversubscription.
+large images before detection, and processes bounded eight-image inference
+chunks so progress remains visible throughout large folders. Face crops are
+batched through the classifier to reduce per-image overhead. PyTorch CPU
+threads are capped to a small parallel count to avoid oversubscription.
 
 The Windows bundle includes a small application icon. Deletion uses the system
 trash when `send2trash` is available and otherwise offers a permanent-delete

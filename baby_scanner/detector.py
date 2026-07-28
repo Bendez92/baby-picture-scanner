@@ -181,45 +181,51 @@ class BabyDetector:
                 except Exception:
                     prepared.append(None)
 
-        face_inputs = []
-        face_owners = []
-        for item in prepared:
-            if item is None:
-                continue
-            path, image, crops = item
-            if crops:
-                face_inputs.extend(crops)
-                face_owners.extend([path] * len(crops))
-
-        face_scores: dict[Path, tuple[float, str]] = {}
-        if face_inputs:
-            for owner, score in zip(face_owners, self._classify_inputs(face_inputs, mode)):
-                if score[0] > face_scores.get(owner, (0.0, ""))[0]:
-                    face_scores[owner] = score
-
-        whole_images = []
-        for item in prepared:
-            if item is None:
-                continue
-            path, image, crops = item
-            whole_images.append((path, image))
-        whole_scores = self._classify_inputs([image for _, image in whole_images], mode) if whole_images else []
-        whole_by_path = dict(zip((path for path, _ in whole_images), whole_scores))
-
-        for index, item in enumerate(prepared, 1):
+        # Keep inference batches bounded so large folders produce visible
+        # progress while they are still being classified.
+        chunk_size = 8
+        for chunk_start in range(0, len(prepared), chunk_size):
             if cancel_event is not None and cancel_event.is_set():
                 break
-            if item is None:
+            chunk = prepared[chunk_start:chunk_start + chunk_size]
+            face_inputs = []
+            face_owners = []
+            whole_images = []
+            for item in chunk:
+                if item is None:
+                    continue
+                path, image, crops = item
+                if crops:
+                    face_inputs.extend(crops)
+                    face_owners.extend([path] * len(crops))
+                whole_images.append((path, image))
+
+            face_scores: dict[Path, tuple[float, str]] = {}
+            if face_inputs:
+                for owner, score in zip(face_owners, self._classify_inputs(face_inputs, mode)):
+                    if score[0] > face_scores.get(owner, (0.0, ""))[0]:
+                        face_scores[owner] = score
+            whole_scores = self._classify_inputs([image for _, image in whole_images], mode) if whole_images else []
+            whole_by_path = dict(zip((path for path, _ in whole_images), whole_scores))
+
+            for offset, item in enumerate(chunk):
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                index = chunk_start + offset + 1
+                if item is None:
+                    if on_progress:
+                        on_progress(index, len(image_paths), None)
+                    continue
+                path, _image, _crops = item
+                candidates = [
+                    face_scores.get(path, (0.0, "unknown")),
+                    whole_by_path.get(path, (0.0, "unknown")),
+                ]
+                confidence, label = max(candidates, key=lambda prediction: prediction[0])
+                if confidence >= threshold:
+                    results.append(Detection(path, confidence, label))
                 if on_progress:
-                    on_progress(index, len(image_paths), None)
-                continue
-            path, _image, crops = item
-            candidates = [face_scores.get(path, (0.0, "unknown")), whole_by_path.get(path, (0.0, "unknown"))]
-            confidence, label = max(candidates, key=lambda prediction: prediction[0])
-            if confidence >= threshold:
-                results.append(Detection(path, confidence, label))
-            if on_progress:
-                on_progress(index, len(image_paths), path)
+                    on_progress(index, len(image_paths), path)
         return results
 
 

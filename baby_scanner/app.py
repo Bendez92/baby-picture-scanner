@@ -98,6 +98,9 @@ class BabyPictureScanner(tk.Tk):
                 break
             try:
                 callback(*args)
+                if getattr(callback, "__name__", "") == "_scan_progress":
+                    self.update_idletasks()
+                    break
             except tk.TclError:
                 return
             except Exception as error:
@@ -270,8 +273,9 @@ class BabyPictureScanner(tk.Tk):
         self._scan_active = True
         self.scan_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
-        self.start_progress.configure(maximum=len(paths), value=0)
-        self.start_status.configure(text=f"Scanning {len(paths)} image(s)…")
+        self.start_progress.stop()
+        self.start_progress.configure(mode="determinate", maximum=len(paths), value=0)
+        self.start_status.configure(text=f"Scanning 0/{len(paths)} images")
         mode = "baby" if self.mode_var.get() == "Babies (0-2)" else "kids"
         self._scan_thread = threading.Thread(target=self._scan_worker, args=(paths, threshold, mode), daemon=True)
         self._scan_thread.start()
@@ -290,8 +294,7 @@ class BabyPictureScanner(tk.Tk):
     def _scan_progress(self, done: int, total: int, path: Path | None = None) -> None:
         self._scanned_count = done
         self.start_progress.configure(value=done)
-        filename = f" — {path.name}" if path else ""
-        self.start_status.configure(text=f"Scanning {done} / {total} images{filename}…")
+        self.start_status.configure(text=f"Scanning {done}/{total} images")
 
     def _cancel_scan(self) -> None:
         self._cancel_event.set()
