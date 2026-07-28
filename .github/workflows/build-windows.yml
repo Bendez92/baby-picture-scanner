@@ -1,0 +1,42 @@
+name: Build Windows exe
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: >
+          pyinstaller --noconfirm --windowed --name BabyPictureScanner
+          --collect-all transformers --collect-all safetensors
+          --collect-all tokenizers --collect-data cv2
+          main.py
+
+      - name: Zip build
+        run: Compress-Archive -Path dist/BabyPictureScanner -DestinationPath BabyPictureScanner-windows.zip
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Baby Picture Scanner (Windows)
+          files: BabyPictureScanner-windows.zip
