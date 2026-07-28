@@ -17,10 +17,11 @@ from .detector import BabyDetector, Detection, image_paths
 class BabyPictureScanner(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+        self._configure_dark_theme()
         self.title("Baby Picture Scanner")
         self.geometry("980x650")
         self.minsize(760, 500)
-        self.configure(bg="#f4f4f4")
+        self.configure(bg="#202124")
         self._detector = BabyDetector()
         self._cancel_event = threading.Event()
         self._scan_thread: threading.Thread | None = None
@@ -31,6 +32,27 @@ class BabyPictureScanner(tk.Tk):
         self._download_thread: threading.Thread | None = None
         self._build_start()
         self.after(50, self._prepare_model)
+
+    def _configure_dark_theme(self) -> None:
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(".", background="#202124", foreground="#f1f3f4")
+        style.configure("TFrame", background="#202124")
+        style.configure("TLabel", background="#202124", foreground="#f1f3f4")
+        style.configure("TLabelframe", background="#202124", foreground="#f1f3f4")
+        style.configure("TLabelframe.Label", background="#202124", foreground="#f1f3f4")
+        style.configure("TButton", background="#3c4043", foreground="#f1f3f4", padding=(10, 6))
+        style.map("TButton", background=[("active", "#5f6368"), ("disabled", "#303134")])
+        style.configure("TCheckbutton", background="#202124", foreground="#f1f3f4")
+        style.configure("TEntry", fieldbackground="#303134", foreground="#f1f3f4")
+        style.configure("TSpinbox", fieldbackground="#303134", foreground="#f1f3f4")
+        style.configure("TCombobox", fieldbackground="#303134", foreground="#f1f3f4")
+        style.map("TCombobox", fieldbackground=[("readonly", "#303134")], foreground=[("readonly", "#f1f3f4")])
+        style.configure("TProgressbar", background="#8ab4f8", troughcolor="#303134", bordercolor="#202124")
+        style.configure("Treeview", background="#303134", fieldbackground="#303134", foreground="#f1f3f4", rowheight=28)
+        style.configure("Treeview.Heading", background="#3c4043", foreground="#f1f3f4")
+        style.map("Treeview", background=[("selected", "#3c5a80")], foreground=[("selected", "#ffffff")])
+        style.configure("TPanedwindow", background="#202124")
 
     def _build_start(self) -> None:
         self._clear()
@@ -47,7 +69,17 @@ class BabyPictureScanner(tk.Tk):
         options.pack(pady=18)
         self.recursive_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(options, text="Include subfolders", variable=self.recursive_var).pack(side="left", padx=12)
-        ttk.Label(options, text="Baby confidence threshold:").pack(side="left")
+        ttk.Label(options, text="Scan for:").pack(side="left", padx=(8, 4))
+        self.mode_var = tk.StringVar(value="Kids 8 and under")
+        self.mode_combo = ttk.Combobox(
+            options,
+            textvariable=self.mode_var,
+            values=("Kids 8 and under", "Babies (0-2)"),
+            state="readonly",
+            width=18,
+        )
+        self.mode_combo.pack(side="left", padx=(0, 12))
+        ttk.Label(options, text="Match confidence threshold:").pack(side="left")
         self.threshold_var = tk.DoubleVar(value=50)
         ttk.Spinbox(options, from_=1, to=99, increment=1, width=5, textvariable=self.threshold_var).pack(side="left", padx=5)
         ttk.Label(options, text="%").pack(side="left")
@@ -131,14 +163,15 @@ class BabyPictureScanner(tk.Tk):
         self.start_progress.configure(maximum=len(paths), value=0)
         self.start_status.configure(text=f"Preparing to scan {len(paths)} image(s)…")
         threshold = max(0.01, min(0.99, float(self.threshold_var.get()) / 100))
-        self._scan_thread = threading.Thread(target=self._scan_worker, args=(paths, threshold), daemon=True)
+        mode = "baby" if self.mode_var.get() == "Babies (0-2)" else "kids"
+        self._scan_thread = threading.Thread(target=self._scan_worker, args=(paths, threshold, mode), daemon=True)
         self._scan_thread.start()
 
-    def _scan_worker(self, paths: list[Path], threshold: float) -> None:
+    def _scan_worker(self, paths: list[Path], threshold: float, mode: str) -> None:
         def progress(done: int, total: int) -> None:
             self.after(0, lambda: self._scan_progress(done, total))
 
-        results = self._detector.scan(paths, threshold, self._cancel_event, progress)
+        results = self._detector.scan(paths, threshold, self._cancel_event, progress, mode)
         self.after(0, lambda: self._scan_finished(results))
 
     def _scan_progress(self, done: int, total: int) -> None:
@@ -165,7 +198,7 @@ class BabyPictureScanner(tk.Tk):
         outer.pack(fill="both", expand=True)
         top = ttk.Frame(outer)
         top.pack(fill="x", pady=(0, 10))
-        ttk.Label(top, text=f"Results — {len(self._detections)} likely baby picture(s)", font=("TkDefaultFont", 15, "bold")).pack(side="left")
+        ttk.Label(top, text=f"Results — {len(self._detections)} likely match(es)", font=("TkDefaultFont", 15, "bold")).pack(side="left")
         ttk.Button(top, text="New Scan", command=self._build_start).pack(side="right")
         body = ttk.PanedWindow(outer, orient="horizontal")
         body.pack(fill="both", expand=True)

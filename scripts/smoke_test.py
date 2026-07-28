@@ -19,10 +19,11 @@ def main() -> None:
         paths = image_paths(root)
         assert paths == [root / "sample.png"]
         detector = BabyDetector()
-        confidence, label = detector.classify(paths[0])
-        assert 0 <= confidence <= 1
-        assert label
-        print(f"Classifier smoke test passed: {label} ({confidence:.1%})")
+        for mode in ("baby", "kids"):
+            confidence, label = detector.classify(paths[0], mode)
+            assert 0 <= confidence <= 1
+            assert label
+            print(f"{mode} classifier smoke test passed: {label} ({confidence:.1%})")
 
 
 if __name__ == "__main__":

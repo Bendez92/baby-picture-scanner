@@ -2,7 +2,7 @@
 
 A standalone Tkinter desktop utility, inspired by dupeGuru's scan-and-review
 workflow. It uses the local HuggingFace `nateraw/vit-age-classifier` model to
-score each image for the `0-2` age class.
+score each image for babies or kids.
 
 ## Run
 
@@ -24,13 +24,21 @@ Results can be
 reviewed with thumbnails, marked/unmarked, revealed in the file manager, or
 moved to the desktop trash.
 
-Supported formats are JPEG, PNG, WebP, and BMP. Classification is image-level,
-with OpenCV's built-in Haar cascade used to detect faces first. Each detected
+Supported formats are JPEG, PNG, WebP, and BMP. Classification is face-first,
+with OpenCV's built-in Haar cascade used to detect faces. Each detected
 face is cropped with context around it and classified independently; the
 strongest `0-2` score becomes the image confidence. Images with no detected
 faces, or whose face crops produce no baby probability, fall back to
 whole-image classification. The model is an age estimator rather than a
 dedicated baby detector, so results should be reviewed before deletion.
+The default scan mode is **Kids 8 and under**, which adds the model's `0-2`
+and `3-9` probabilities. The `3-9` model class extends beyond age 8, so this
+is an approximate range. **Babies (0-2)** mode uses only the `0-2` class.
+
+Scanning prepares image decoding and face detection concurrently, downsizes
+large images before detection, and batches face crops through the classifier
+to reduce per-image overhead. PyTorch CPU threads are capped to a small
+parallel count to avoid oversubscription.
 
 ## Headless smoke test
 
