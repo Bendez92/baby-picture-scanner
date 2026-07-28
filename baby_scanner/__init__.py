@@ -1,0 +1,1 @@
+"""Baby Picture Scanner package."""
