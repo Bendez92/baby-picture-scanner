@@ -165,7 +165,7 @@ class BabyDetector:
         paths: Iterable[Path],
         threshold: float = 0.50,
         cancel_event=None,
-        on_progress: Callable[[int, int], None] | None = None,
+        on_progress: Callable[[int, int, Path | None], None] | None = None,
         mode: str = "kids",
     ) -> list[Detection]:
         image_paths = list(paths)
@@ -211,7 +211,7 @@ class BabyDetector:
                 break
             if item is None:
                 if on_progress:
-                    on_progress(index, len(image_paths))
+                    on_progress(index, len(image_paths), None)
                 continue
             path, _image, crops = item
             candidates = [face_scores.get(path, (0.0, "unknown")), whole_by_path.get(path, (0.0, "unknown"))]
@@ -219,7 +219,7 @@ class BabyDetector:
             if confidence >= threshold:
                 results.append(Detection(path, confidence, label))
             if on_progress:
-                on_progress(index, len(image_paths))
+                on_progress(index, len(image_paths), path)
         return results
 
 

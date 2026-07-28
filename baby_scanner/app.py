@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -28,6 +29,11 @@ class BabyPictureScanner(tk.Tk):
         self._detections: list[Detection] = []
         self._selected: set[int] = set()
         self._thumb: ImageTk.PhotoImage | None = None
+        self._preview_image: Image.Image | None = None
+        self._preview_geometry: tuple[int, int, int, int, int, int] | None = None
+        self._crop_start: tuple[int, int] | None = None
+        self._crop_selection: tuple[tuple[int, int], tuple[int, int]] | None = None
+        self._crop_rect: int | None = None
         self._model_ready = False
         self._model_loaded = False
         self._download_thread: threading.Thread | None = None
@@ -180,15 +186,16 @@ class BabyPictureScanner(tk.Tk):
         self._scan_thread.start()
 
     def _scan_worker(self, paths: list[Path], threshold: float, mode: str) -> None:
-        def progress(done: int, total: int) -> None:
-            self.after(0, lambda: self._scan_progress(done, total))
+        def progress(done: int, total: int, path: Path | None) -> None:
+            self.after(0, lambda: self._scan_progress(done, total, path))
 
         results = self._detector.scan(paths, threshold, self._cancel_event, progress, mode)
         self.after(0, lambda: self._scan_finished(results))
 
-    def _scan_progress(self, done: int, total: int) -> None:
+    def _scan_progress(self, done: int, total: int, path: Path | None = None) -> None:
         self.start_progress.configure(value=done)
-        self.start_status.configure(text=f"Scanning image {done} of {total}…")
+        filename = f" — {path.name}" if path else ""
+        self.start_status.configure(text=f"Scanning {done} / {total} images{filename}…")
 
     def _cancel_scan(self) -> None:
         self._cancel_event.set()
@@ -238,10 +245,23 @@ class BabyPictureScanner(tk.Tk):
         ttk.Button(actions, text="Unmark All", command=self._unmark_all).pack(side="left", padx=5)
         ttk.Button(actions, text="Reveal in file manager", command=self._reveal_selected).pack(side="right")
         ttk.Button(actions, text="Delete Selected", command=self._delete_selected).pack(side="right", padx=5)
-        preview = ttk.LabelFrame(body, text="Preview", padding=12)
+        preview = ttk.LabelFrame(body, text="Preview (drag to crop)", padding=12)
         body.add(preview, weight=1)
-        self.preview_label = ttk.Label(preview, text="Select a row to preview", anchor="center")
-        self.preview_label.pack(fill="both", expand=True)
+        self.preview_canvas = tk.Canvas(
+            preview, width=360, height=450, bg="#303134", highlightthickness=0
+        )
+        self.preview_canvas.pack(fill="both", expand=True)
+        self.preview_canvas.bind("<ButtonPress-1>", self._crop_press)
+        self.preview_canvas.bind("<B1-Motion>", self._crop_drag)
+        self.preview_canvas.bind("<ButtonRelease-1>", self._crop_release)
+        crop_actions = ttk.Frame(preview)
+        crop_actions.pack(fill="x", pady=(8, 0))
+        self.crop_button = ttk.Button(
+            crop_actions, text="Crop & Overwrite Original", command=self._crop_overwrite, state="disabled"
+        )
+        self.crop_button.pack(side="left")
+        ttk.Button(crop_actions, text="Reset", command=self._reset_crop).pack(side="right")
+        self.preview_canvas.create_text(180, 225, text="Select a row to preview", fill="#f1f3f4")
         if self._detections:
             self.tree.selection_set("0")
 
@@ -280,12 +300,125 @@ class BabyPictureScanner(tk.Tk):
         index = int(selected[0])
         path = self._detections[index].path
         try:
-            image = Image.open(path).convert("RGB")
-            image.thumbnail((330, 450))
-            self._thumb = ImageTk.PhotoImage(image)
-            self.preview_label.configure(image=self._thumb, text="")
+            with Image.open(path) as source:
+                image = source.convert("RGB")
+            self._preview_image = image
+            self._reset_crop()
+            self._draw_preview()
         except Exception as error:
-            self.preview_label.configure(image="", text=f"Preview unavailable\n{error}")
+            self._preview_image = None
+            self.preview_canvas.delete("all")
+            self.preview_canvas.create_text(180, 225, text=f"Preview unavailable\n{error}", fill="#f1f3f4")
+
+    def _draw_preview(self) -> None:
+        if self._preview_image is None:
+            return
+        self.preview_canvas.delete("all")
+        image = self._preview_image.copy()
+        image.thumbnail((350, 430))
+        width, height = image.size
+        canvas_width = max(self.preview_canvas.winfo_width(), 360)
+        canvas_height = max(self.preview_canvas.winfo_height(), 450)
+        origin_x = (canvas_width - width) // 2
+        origin_y = (canvas_height - height) // 2
+        self._preview_geometry = (
+            self._preview_image.width,
+            self._preview_image.height,
+            width,
+            height,
+            origin_x,
+            origin_y,
+        )
+        self._thumb = ImageTk.PhotoImage(image)
+        self.preview_canvas.create_image(origin_x, origin_y, image=self._thumb, anchor="nw")
+
+    def _crop_press(self, event) -> None:
+        if self._preview_geometry is None:
+            return
+        self._reset_crop()
+        self._crop_start = self._preview_point(event.x, event.y)
+
+    def _crop_drag(self, event) -> None:
+        if self._crop_start is None:
+            return
+        point = self._preview_point(event.x, event.y)
+        if point is None:
+            return
+        if self._crop_rect is not None:
+            self.preview_canvas.delete(self._crop_rect)
+        self._crop_rect = self.preview_canvas.create_rectangle(
+            self._crop_start[0], self._crop_start[1], point[0], point[1],
+            outline="#8ab4f8", width=2,
+        )
+        self.crop_button.configure(state="normal" if self._valid_crop(self._crop_start, point) else "disabled")
+        self._crop_selection = (self._crop_start, point)
+
+    def _crop_release(self, event) -> None:
+        self._crop_drag(event)
+        self._crop_start = None
+
+    def _preview_point(self, x: int, y: int) -> tuple[int, int] | None:
+        if self._preview_geometry is None:
+            return None
+        _, _, width, height, origin_x, origin_y = self._preview_geometry
+        px = min(max(x, origin_x), origin_x + width)
+        py = min(max(y, origin_y), origin_y + height)
+        return px, py
+
+    @staticmethod
+    def _valid_crop(start: tuple[int, int], end: tuple[int, int]) -> bool:
+        return abs(end[0] - start[0]) >= 3 and abs(end[1] - start[1]) >= 3
+
+    def _reset_crop(self) -> None:
+        if hasattr(self, "preview_canvas") and self._crop_rect is not None:
+            self.preview_canvas.delete(self._crop_rect)
+        self._crop_rect = None
+        self._crop_start = None
+        self._crop_selection = None
+        if hasattr(self, "crop_button"):
+            self.crop_button.configure(state="disabled")
+
+    def _crop_overwrite(self) -> None:
+        if self._preview_geometry is None or self._crop_selection is None:
+            return
+        start, point = self._crop_selection
+        if not self._valid_crop(start, point):
+            messagebox.showinfo("Select a crop", "Drag a rectangle over the preview first.")
+            return
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo("Select an image", "Select an image first.")
+            return
+        index = int(selected[0])
+        path = self._detections[index].path
+        original_width, original_height, display_width, display_height, origin_x, origin_y = self._preview_geometry
+        left, right = sorted((start[0], point[0]))
+        top, bottom = sorted((start[1], point[1]))
+        box = (
+            int((left - origin_x) * original_width / display_width),
+            int((top - origin_y) * original_height / display_height),
+            int((right - origin_x) * original_width / display_width),
+            int((bottom - origin_y) * original_height / display_height),
+        )
+        if not messagebox.askyesno("Overwrite original", f"Crop and overwrite {path.name}?"):
+            return
+        try:
+            with Image.open(path) as source:
+                image_format = source.format or path.suffix.lstrip(".").upper()
+                cropped = source.convert("RGB").crop(box)
+                with tempfile.NamedTemporaryFile(
+                    dir=path.parent, prefix=f".{path.stem}.", suffix=path.suffix, delete=False
+                ) as temporary:
+                    temporary_path = Path(temporary.name)
+                try:
+                    cropped.save(temporary_path, format=image_format)
+                    os.replace(temporary_path, path)
+                finally:
+                    temporary_path.unlink(missing_ok=True)
+            self._show_preview()
+            messagebox.showinfo("Crop complete", f"Updated {path.name}.")
+        except Exception as error:
+            messagebox.showerror("Could not overwrite image", str(error))
 
     def _reveal_selected(self) -> None:
         selected = self.tree.selection()

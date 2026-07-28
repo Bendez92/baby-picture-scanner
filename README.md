@@ -28,6 +28,11 @@ keeps that pipeline for all subsequent scans. Startup shows an animated
 “Loading model into memory…” indicator; scan preparation does not reload the
 model.
 
+During results review, select an image and drag a rectangle over its preview.
+Use **Crop & Overwrite Original** to confirm and save the crop back to the
+original file, or **Reset** to clear the selection. The crop button remains
+disabled until a valid rectangle is selected.
+
 Supported formats are JPEG, PNG, WebP, and BMP. Classification is face-first,
 with OpenCV's built-in Haar cascade used to detect faces. Each detected
 face is cropped with context around it and classified independently; the
