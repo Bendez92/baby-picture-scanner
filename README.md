@@ -23,6 +23,10 @@ the confidence threshold, optionally include subfolders, and click **Scan**.
 Results can be
 reviewed with thumbnails, marked/unmarked, revealed in the file manager, or
 moved to the desktop trash.
+After downloading, the app loads the model into memory once at startup and
+keeps that pipeline for all subsequent scans. Startup shows an animated
+“Loading model into memory…” indicator; scan preparation does not reload the
+model.
 
 Supported formats are JPEG, PNG, WebP, and BMP. Classification is face-first,
 with OpenCV's built-in Haar cascade used to detect faces. Each detected

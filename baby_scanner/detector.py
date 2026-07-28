@@ -33,15 +33,22 @@ class BabyDetector:
     def __init__(self, model_name: str = DEFAULT_MODEL) -> None:
         self.model_name = model_name
         self._pipeline = None
+        self._pipeline_lock = Lock()
 
     def _load(self):
         if self._pipeline is None:
-            import torch
-            from transformers import pipeline
+            with self._pipeline_lock:
+                if self._pipeline is None:
+                    import torch
+                    from transformers import pipeline
 
-            torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
-            self._pipeline = pipeline("image-classification", model=self.model_name)
+                    torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
+                    self._pipeline = pipeline("image-classification", model=self.model_name)
         return self._pipeline
+
+    def load_model(self) -> None:
+        """Load the classifier into memory once after its files are cached."""
+        self._load()
 
     def prepare_model(self, on_progress: Callable[[int, int], None] | None = None) -> None:
         """Ensure model files are cached before the UI allows scanning."""

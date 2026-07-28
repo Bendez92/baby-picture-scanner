@@ -29,6 +29,7 @@ class BabyPictureScanner(tk.Tk):
         self._selected: set[int] = set()
         self._thumb: ImageTk.PhotoImage | None = None
         self._model_ready = False
+        self._model_loaded = False
         self._download_thread: threading.Thread | None = None
         self._build_start()
         self.after(50, self._prepare_model)
@@ -92,7 +93,7 @@ class BabyPictureScanner(tk.Tk):
         buttons.pack(pady=10)
         self.scan_button = ttk.Button(buttons, text="Scan", command=self._start_scan)
         self.scan_button.pack(side="left", padx=5)
-        if not self._model_ready:
+        if not self._model_loaded:
             self.scan_button.configure(state="disabled")
         self.cancel_button = ttk.Button(buttons, text="Cancel", command=self._cancel_scan, state="disabled")
         self.cancel_button.pack(side="left", padx=5)
@@ -122,6 +123,8 @@ class BabyPictureScanner(tk.Tk):
 
         try:
             self._detector.prepare_model(progress)
+            self.after(0, self._model_loading_ui)
+            self._detector.load_model()
         except Exception as error:
             self.after(0, lambda error=error: self._model_failed(error))
         else:
@@ -136,15 +139,24 @@ class BabyPictureScanner(tk.Tk):
 
     def _model_ready_ui(self) -> None:
         self._model_ready = True
-        self.start_progress.configure(maximum=1, value=1)
+        self._model_loaded = True
+        self.start_progress.stop()
+        self.start_progress.configure(mode="determinate", maximum=1, value=1)
         self.start_status.configure(text="Model ready. Choose a folder to begin.")
         self.scan_button.configure(state="normal")
 
+    def _model_loading_ui(self) -> None:
+        self.start_progress.configure(mode="indeterminate")
+        self.start_progress.start(12)
+        self.start_status.configure(text="Loading model into memory…")
+
     def _model_failed(self, error: Exception) -> None:
         self._model_ready = False
-        self.start_progress.configure(maximum=1, value=0)
+        self._model_loaded = False
+        self.start_progress.stop()
+        self.start_progress.configure(mode="determinate", maximum=1, value=0)
         self.start_status.configure(
-            text=f"Model download failed. Internet access is required on first run: {error}"
+            text=f"Model download/load failed. Internet access is required on first run: {error}"
         )
         self.retry_button.pack(pady=(8, 0))
 
@@ -161,7 +173,7 @@ class BabyPictureScanner(tk.Tk):
         self.scan_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         self.start_progress.configure(maximum=len(paths), value=0)
-        self.start_status.configure(text=f"Preparing to scan {len(paths)} image(s)…")
+        self.start_status.configure(text=f"Scanning {len(paths)} image(s)…")
         threshold = max(0.01, min(0.99, float(self.threshold_var.get()) / 100))
         mode = "baby" if self.mode_var.get() == "Babies (0-2)" else "kids"
         self._scan_thread = threading.Thread(target=self._scan_worker, args=(paths, threshold, mode), daemon=True)
