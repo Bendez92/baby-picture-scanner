@@ -58,7 +58,9 @@ threads are capped to a small parallel count to avoid oversubscription.
 The Windows bundle includes a small application icon. Deletion uses the system
 trash when `send2trash` is available and otherwise offers a permanent-delete
 fallback. Corrupt or unreadable image files are skipped and do not abort the
-rest of a scan.
+rest of a scan. Closing the window cancels active work and waits briefly for
+workers to stop; a final forced-exit fallback prevents a background process
+from being left behind on Windows.
 
 ## Headless smoke test
 

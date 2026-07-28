@@ -4,15 +4,47 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import thread as _thread_pool
 import os
 from pathlib import Path
 from threading import Lock
 from typing import Callable, Iterable
+import threading
+import weakref
 
 from PIL import Image
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 DEFAULT_MODEL = "nateraw/vit-age-classifier"
+
+
+class DaemonThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor variant whose workers cannot keep the app alive."""
+
+    def _adjust_thread_count(self) -> None:
+        if self._idle_semaphore.acquire(timeout=0):
+            return
+
+        def weakref_cb(_, q=self._work_queue):
+            q.put(None)
+
+        num_threads = len(self._threads)
+        if num_threads < self._max_workers:
+            thread_name = "%s_%d" % (self._thread_name_prefix or self, num_threads)
+            worker = threading.Thread(
+                name=thread_name,
+                target=_thread_pool._worker,
+                args=(
+                    weakref.ref(self, weakref_cb),
+                    self._work_queue,
+                    self._initializer,
+                    self._initargs,
+                ),
+                daemon=True,
+            )
+            worker.start()
+            self._threads.add(worker)
+            _thread_pool._threads_queues[worker] = self._work_queue
 
 
 @dataclass
@@ -171,7 +203,7 @@ class BabyDetector:
         image_paths = list(paths)
         results: list[Detection] = []
         prepared = []
-        with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as executor:
+        with DaemonThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as executor:
             futures = [executor.submit(self._prepare_image, path) for path in image_paths]
             for future in futures:
                 if cancel_event is not None and cancel_event.is_set():
