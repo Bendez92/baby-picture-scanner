@@ -25,8 +25,8 @@ class Detection:
 class BabyDetector:
     """Lazy-loading HuggingFace age classifier.
 
-    The model labels used by nateraw/vit-age-classifier are age ranges. A
-    The model's 0-2 and 3-9 age ranges can be selected independently or
+    The model labels used by nateraw/vit-age-classifier are age ranges. The
+    model's 0-2 and 3-9 age ranges can be selected independently or
     combined as the app's approximate "kids 8 and under" mode.
     """
 
@@ -148,18 +148,10 @@ class BabyDetector:
         return image_path, image, self._face_crops(image)
 
     def classify(self, image_path: Path, mode: str = "kids") -> tuple[float, str]:
-        """Classify an image using the strongest detected face, if available."""
+        """Classify the strongest face or whole-image candidate."""
         _, image, crops = self._prepare_image(image_path)
-        if not crops:
-            return self._classify_input(image, mode)
-        predictions = self._classify_inputs(crops, mode)
-        strongest_face = max(predictions, key=lambda prediction: prediction[0])
-        # Sleeping or heavily occluded faces can be detected but provide no
-        # useful age signal. Preserve the whole-image detector as a safety net
-        # in that case, while still preferring any positive face estimate.
-        if strongest_face[0] > 0:
-            return strongest_face
-        return self._classify_input(image, mode)
+        predictions = self._classify_inputs(crops + [image], mode)
+        return max(predictions, key=lambda prediction: prediction[0])
 
     def scan(
         self,
@@ -198,15 +190,14 @@ class BabyDetector:
                 if score[0] > face_scores.get(owner, (0.0, ""))[0]:
                     face_scores[owner] = score
 
-        fallback = []
+        whole_images = []
         for item in prepared:
             if item is None:
                 continue
             path, image, crops = item
-            if not crops or face_scores.get(path, (0.0, ""))[0] == 0:
-                fallback.append((path, image))
-        fallback_scores = self._classify_inputs([image for _, image in fallback], mode) if fallback else []
-        fallback_by_path = dict(zip((path for path, _ in fallback), fallback_scores))
+            whole_images.append((path, image))
+        whole_scores = self._classify_inputs([image for _, image in whole_images], mode) if whole_images else []
+        whole_by_path = dict(zip((path for path, _ in whole_images), whole_scores))
 
         for index, item in enumerate(prepared, 1):
             if cancel_event is not None and cancel_event.is_set():
@@ -216,9 +207,8 @@ class BabyDetector:
                     on_progress(index, len(image_paths))
                 continue
             path, _image, crops = item
-            confidence, label = face_scores.get(path, (0.0, ""))
-            if not crops or confidence == 0:
-                confidence, label = fallback_by_path.get(path, (0.0, "unknown"))
+            candidates = [face_scores.get(path, (0.0, "unknown")), whole_by_path.get(path, (0.0, "unknown"))]
+            confidence, label = max(candidates, key=lambda prediction: prediction[0])
             if confidence >= threshold:
                 results.append(Detection(path, confidence, label))
             if on_progress:
