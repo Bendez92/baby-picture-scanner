@@ -224,5 +224,8 @@ class BabyDetector:
 
 
 def image_paths(folder: Path, recursive: bool = False) -> list[Path]:
-    iterator = folder.rglob("*") if recursive else folder.glob("*")
-    return sorted(path for path in iterator if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS)
+    try:
+        iterator = folder.rglob("*") if recursive else folder.glob("*")
+        return sorted(path for path in iterator if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS)
+    except OSError:
+        return []

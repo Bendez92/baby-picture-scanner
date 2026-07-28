@@ -27,6 +27,7 @@ jobs:
       - name: Build with PyInstaller
         run: >
           pyinstaller --noconfirm --windowed --name BabyPictureScanner
+          --icon assets/icon.ico
           --collect-all transformers --collect-all safetensors
           --collect-all tokenizers --collect-data cv2
           main.py

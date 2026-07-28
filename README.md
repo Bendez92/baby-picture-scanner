@@ -33,6 +33,11 @@ Use **Crop & Overwrite Original** to confirm and save the crop back to the
 original file, or **Reset** to clear the selection. The crop button remains
 disabled until a valid rectangle is selected.
 
+The app remembers the last folder, recursive-scan setting, mode, and threshold
+in `~/.baby_picture_scanner.json`. Press **Enter** to start a scan, **Delete**
+to delete marked results, and double-click a result to open the image. Click
+column headings to sort results.
+
 Supported formats are JPEG, PNG, WebP, and BMP. Classification is face-first,
 with OpenCV's built-in Haar cascade used to detect faces. Each detected
 face is cropped with context around it and classified independently; the
@@ -48,6 +53,11 @@ Scanning prepares image decoding and face detection concurrently, downsizes
 large images before detection, and batches face crops through the classifier
 to reduce per-image overhead. PyTorch CPU threads are capped to a small
 parallel count to avoid oversubscription.
+
+The Windows bundle includes a small application icon. Deletion uses the system
+trash when `send2trash` is available and otherwise offers a permanent-delete
+fallback. Corrupt or unreadable image files are skipped and do not abort the
+rest of a scan.
 
 ## Headless smoke test
 
